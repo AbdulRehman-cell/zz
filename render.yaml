@@ -1,6 +1,7 @@
-# Render Blueprint — deploys this static site as a Docker web service.
+# -----------------------------------------------------------------------------
+# Render Blueprint — Docker-based static site deployment
 # Docs: https://render.com/docs/blueprint-spec
-
+# -----------------------------------------------------------------------------
 services:
   - type: web
     name: static-site
@@ -9,12 +10,12 @@ services:
     region: oregon
     dockerfilePath: ./Dockerfile
     dockerContext: .
+    envVars:
+      - key: NGINX_PORT
+        value: "8080"
     healthCheckPath: /healthz
     autoDeploy: true
-    envVars:
-      - key: TZ
-        value: UTC
-    # Render sets $PORT automatically; nginx.conf listens on 8080,
-    # so we tell Render which port the container exposes:
     numInstances: 1
-    disk: {}
+    # Render provides its own port binding; the container must listen on
+    # the port defined by $PORT if using non-Docker runtimes. For Docker
+    # runtime, Render auto-detects the EXPOSEd port (8080).

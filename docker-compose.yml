@@ -1,31 +1,27 @@
+# -----------------------------------------------------------------------------
+# Local development / self-hosted preview.
+# No database or cache needed — this is a static site.
+# -----------------------------------------------------------------------------
 services:
   web:
     build:
       context: .
       dockerfile: Dockerfile
-    image: static-site:1.0.0
-    container_name: static-site
-    restart: unless-stopped
+    image: static-site:local
     ports:
-      - "${PORT:-8080}:8080"
+      - "8080:8080"
     environment:
-      - TZ=${TZ:-UTC}
+      - NODE_ENV=production  # harmless placeholder; no node runtime present
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/healthz"]
+      test: ["CMD", "curl", "-fs", "http://127.0.0.1:8080/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
-    security_opt:
-      - no-new-privileges:true
+    restart: unless-stopped
     read_only: true
     tmpfs:
       - /var/cache/nginx
       - /var/run
-      - /tmp
-    networks:
-      - webnet
-
-networks:
-  webnet:
-    driver: bridge
+    security_opt:
+      - no-new-privileges:true

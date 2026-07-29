@@ -1,30 +1,37 @@
-# Git
+# Version control
 .git
 .github
 .gitignore
 
-# Docs
+# Docs (not needed inside image)
 DEPLOY.md
 README.md
+*.md
 
-# Docker / deploy configs (not needed inside the image)
-Dockerfile
-docker-compose.yml
-render.yaml
-.dockerignore
-
-# Env files
+# Environment / secrets
 .env
 .env.*
 !.env.example
 
-# OS / editor cruft
+# OS/editor cruft
 .DS_Store
 Thumbs.db
 *.swp
 .vscode
 .idea
 
-# Node (in case any local tooling artifacts exist — no build here)
+# Docker-related
+Dockerfile
+docker-compose.yml
+docker-compose.override.yml
+
+# Node artifacts (should not exist, but ignore defensively)
 node_modules
 npm-debug.log
+yarn-error.log
+package.json
+package-lock.json
+yarn.lock
+
+# CI/platform config not needed in image
+render.yaml
