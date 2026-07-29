@@ -1,0 +1,85 @@
+name: Build, Test, and Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  IMAGE_NAME: static-site
+
+jobs:
+  lint-and-validate:
+    name: Validate HTML/CSS/JS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check required files exist
+        run: |
+          test -f index.html
+          test -f styles.css
+          test -f script.js
+          echo "Core files present."
+
+      - name: HTML validation (basic syntax check)
+        uses: docker://ghcr.io/validator/validator:latest
+        continue-on-error: true
+        with:
+          args: --also-check-css *.html
+
+  docker-build-test:
+    name: Build Docker image & smoke test
+    runs-on: ubuntu-latest
+    needs: lint-and-validate
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        run: docker build -t ${{ env.IMAGE_NAME }}:${{ github.sha }} .
+
+      - name: Run container
+        run: docker run -d --name test-container -p 8080:8080 ${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Wait for container health
+        run: |
+          for i in $(seq 1 10); do
+            status=$(docker inspect --format='{{.State.Health.Status}}' test-container || echo "starting")
+            echo "Health status: $status"
+            if [ "$status" = "healthy" ]; then
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "Container did not become healthy in time"
+          docker logs test-container
+          exit 1
+
+      - name: Smoke test HTTP response
+        run: |
+          curl -sSf http://localhost:8080/healthz
+          curl -sSf http://localhost:8080/ -o /dev/null
+
+      - name: Clean up
+        if: always()
+        run: docker rm -f test-container || true
+
+  deploy:
+    name: Deploy to Render
+    runs-on: ubuntu-latest
+    needs: docker-build-test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Trigger Render Deploy Hook
+        run: |
+          if [ -z "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" ]; then
+            echo "RENDER_DEPLOY_HOOK_URL secret not set. Skipping deploy trigger."
+            exit 0
+          fi
+          curl -sSf -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
