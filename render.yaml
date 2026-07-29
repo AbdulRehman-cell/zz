@@ -1,9 +1,10 @@
-# Render Blueprint — Infrastructure as Code
+# Render Blueprint — deploys this static site as a Docker web service.
 # Docs: https://render.com/docs/blueprint-spec
+
 services:
   - type: web
     name: static-site
-    env: docker
+    runtime: docker
     plan: starter
     region: oregon
     dockerfilePath: ./Dockerfile
@@ -11,6 +12,9 @@ services:
     healthCheckPath: /healthz
     autoDeploy: true
     envVars:
-      - key: SITE_ENV
-        value: production
+      - key: TZ
+        value: UTC
+    # Render sets $PORT automatically; nginx.conf listens on 8080,
+    # so we tell Render which port the container exposes:
     numInstances: 1
+    disk: {}

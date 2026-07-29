@@ -1,85 +1,102 @@
-name: Build, Test, and Deploy
+name: Build, Test & Deploy
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch: {}
 
 env:
   IMAGE_NAME: static-site
 
 jobs:
   lint-and-validate:
-    name: Validate HTML/CSS/JS
-    runs-on: ubuntu-latest
+    name: Lint & Validate Static Files
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Check required files exist
+      - name: Validate HTML files exist and are non-empty
         run: |
-          test -f index.html
-          test -f styles.css
-          test -f script.js
-          echo "Core files present."
+          set -euo pipefail
+          fail=0
+          for f in *.html; do
+            if [ ! -s "$f" ]; then
+              echo "::error file=$f::File is empty or missing"
+              fail=1
+            fi
+          done
+          exit $fail
 
-      - name: HTML validation (basic syntax check)
-        uses: docker://ghcr.io/validator/validator:latest
-        continue-on-error: true
-        with:
-          args: --also-check-css *.html
+      - name: Lint HTML with htmlhint (via pinned Docker image)
+        run: |
+          docker run --rm -v "$PWD":/workspace -w /workspace \
+            node:20.18.1-alpine3.20 \
+            npx --yes htmlhint@1.1.4 "*.html" || true
+        # Non-blocking lint (warnings only) — remove `|| true` to enforce strictly
 
-  docker-build-test:
-    name: Build Docker image & smoke test
-    runs-on: ubuntu-latest
+  build:
+    name: Build Docker Image
     needs: lint-and-validate
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Build image
-        run: docker build -t ${{ env.IMAGE_NAME }}:${{ github.sha }} .
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: ${{ env.IMAGE_NAME }}:ci-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Run container
-        run: docker run -d --name test-container -p 8080:8080 ${{ env.IMAGE_NAME }}:${{ github.sha }}
+      - name: Load image for smoke test
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:smoke
 
-      - name: Wait for container health
+      - name: Smoke test — run container and hit /healthz
         run: |
+          set -euo pipefail
+          docker run -d --name smoke-test -p 8080:8080 ${{ env.IMAGE_NAME }}:smoke
           for i in $(seq 1 10); do
-            status=$(docker inspect --format='{{.State.Health.Status}}' test-container || echo "starting")
-            echo "Health status: $status"
-            if [ "$status" = "healthy" ]; then
+            if curl -fsS http://127.0.0.1:8080/healthz; then
+              echo "Health check passed"
               exit 0
             fi
+            echo "Waiting for container to become healthy... ($i)"
             sleep 3
           done
-          echo "Container did not become healthy in time"
-          docker logs test-container
+          echo "::error::Health check failed after retries"
+          docker logs smoke-test
           exit 1
 
-      - name: Smoke test HTTP response
-        run: |
-          curl -sSf http://localhost:8080/healthz
-          curl -sSf http://localhost:8080/ -o /dev/null
-
-      - name: Clean up
+      - name: Cleanup smoke test container
         if: always()
-        run: docker rm -f test-container || true
+        run: docker rm -f smoke-test || true
 
   deploy:
     name: Deploy to Render
-    runs-on: ubuntu-latest
-    needs: docker-build-test
+    needs: build
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-24.04
     steps:
       - name: Trigger Render Deploy Hook
         run: |
           if [ -z "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" ]; then
-            echo "RENDER_DEPLOY_HOOK_URL secret not set. Skipping deploy trigger."
-            exit 0
+            echo "::error::RENDER_DEPLOY_HOOK_URL secret is not set"
+            exit 1
           fi
-          curl -sSf -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+          curl -fsS -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"

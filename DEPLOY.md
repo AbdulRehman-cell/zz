@@ -1,68 +1,95 @@
-# Deploy Guide (Under 5 Minutes)
+# Deploy Guide — Static Site on Render (Docker)
 
-This is a **static HTML/CSS/JS site** with no build step. It's containerized with **nginx** (pinned versions) and deployed on **Render** as a Docker web service.
+This is a **plain static HTML/CSS/JS website** — there is no build step, no npm, no node. It's served by a tiny, pinned `nginx` Docker image.
 
-## Prerequisites
-- A [Render](https://render.com) account (free to sign up)
-- This repo pushed to GitHub/GitLab
-- (Optional, for local testing) Docker installed
+You can deploy in under 5 minutes using either **Render's dashboard** (easiest) or the **Render CLI**.
 
-## Option A: Deploy on Render via Dashboard (fastest, no CLI needed)
+---
 
-1. Go to https://dashboard.render.com → **New** → **Blueprint**
-2. Connect your repo — Render will auto-detect `render.yaml`
-3. Click **Apply** — Render builds the Dockerfile and deploys automatically
+## Option A — Deploy via Render Dashboard (recommended, ~3 minutes)
 
-Your site will be live at `https://static-site.onrender.com` (or your chosen name) within ~2-3 minutes.
+1. Push this repository to GitHub (if not already there):
+   ```bash
+   git add .
+   git commit -m "Add production deployment config"
+   git push origin main
+   ```
 
-## Option B: Deploy via Render CLI
+2. Go to [render.com](https://dashboard.render.com) → **New** → **Blueprint**.
+   Render will detect `render.yaml` automatically and configure the Docker web service for you.
+
+3. Click **Apply** — Render builds the Dockerfile and deploys. Your site will be live at:
+   ```
+   https://static-site.onrender.com
+   ```
+   (Render also shows the exact URL in the dashboard once the build finishes.)
+
+That's it — 3 clicks, no CLI needed.
+
+---
+
+## Option B — Deploy via Render CLI
 
 ```bash
-# 1. Install Render CLI
+# 1. Install the Render CLI
 brew install render
 
-# 2. Login
+# 2. Log in
 render login
 
 # 3. Deploy using the blueprint in this repo
 render blueprint launch
 ```
 
-## Option C: Test Locally First (recommended before deploying)
+---
+
+## Local Test Before Deploying (optional but recommended)
 
 ```bash
-# 1. Build the image
-docker build -t static-site:local .
+# Build the image
+docker build -t static-site:1.0.0 .
 
-# 2. Run it
-docker run -d -p 8080:8080 --name static-site static-site:local
+# Run it
+docker run --rm -p 8080:8080 static-site:1.0.0
 
-# 3. Verify it's healthy and serving content
+# In another terminal, verify health check
 curl http://localhost:8080/healthz
-open http://localhost:8080
+# -> ok
 ```
 
-Or simply:
+Or with docker-compose:
 
 ```bash
 docker compose up --build
 ```
 
-## CI/CD (Automatic Deploys)
+Then open http://localhost:8080 in your browser.
 
-The included `.github/workflows/deploy.yml` will:
-1. Validate HTML/CSS/JS files exist and are well-formed
+---
+
+## Continuous Deployment (already configured)
+
+`.github/workflows/deploy.yml` will automatically:
+1. Lint/validate HTML files
 2. Build the Docker image and run a smoke test against `/healthz`
-3. On push to `main`, trigger a Render deploy via deploy hook
+3. Trigger a Render deploy hook on every push to `main`
 
-### One-time setup for auto-deploy:
-1. In Render Dashboard → your service → **Settings** → copy the **Deploy Hook URL**
-2. In GitHub repo → **Settings** → **Secrets and variables** → **Actions** → add secret:
+**One-time setup required:** add your Render deploy hook URL as a GitHub secret:
+
+1. In Render dashboard → your service → **Settings** → **Deploy Hook** → copy the URL.
+2. In GitHub repo → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**:
    - Name: `RENDER_DEPLOY_HOOK_URL`
-   - Value: (paste the URL)
-3. Push to `main` — deploys happen automatically.
+   - Value: *(paste the URL)*
+
+After that, every push to `main` auto-deploys.
+
+---
 
 ## Troubleshooting
-- **Health check failing?** Confirm `/healthz` returns `200 ok` — check `nginx.conf`.
-- **404s on routes?** This site serves `.html` files directly (e.g. `/about.html`); pretty URLs like `/about` are also supported via `try_files`.
-- **Port issues?** The container listens on `8080` internally — Render maps this automatically via `$PORT` detection for Docker services (Render passes `PORT=8080` by convention; our nginx config is already hardcoded to 8080, which matches Render's default expectation for Docker web services).
+
+| Problem | Fix |
+|---|---|
+| Build fails on Render | Check the Dockerfile builds locally first: `docker build -t test .` |
+| Health check failing | Confirm `/healthz` returns `ok`: `curl http://localhost:8080/healthz` |
+| 404 on routes | This is a static multi-page site — pages must be requested with `.html` (e.g. `/about.html`) |
+| Port issues locally | Render sets `$PORT` automatically in production; locally use `-p 8080:8080` |
